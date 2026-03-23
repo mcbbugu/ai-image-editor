@@ -1,6 +1,6 @@
-const https = require('https')
+import https from 'https'
 
-module.exports = function handler(req, res) {
+export default function handler(req, res) {
   const url = new URL(req.url || '/', 'http://localhost')
   const prefix = '/api/dashscope'
   if (!url.pathname.startsWith(prefix)) {
@@ -38,6 +38,6 @@ module.exports = function handler(req, res) {
   req.pipe(proxy)
 }
 
-module.exports.config = {
+export const config = {
   api: { bodyParser: false },
 }

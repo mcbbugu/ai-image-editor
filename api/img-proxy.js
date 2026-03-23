@@ -1,4 +1,4 @@
-module.exports = async function handler(req, res) {
+export default async function handler(req, res) {
   const target = req.query.url
   if (!target) { res.status(400).send('missing url'); return }
 

@@ -1,6 +1,6 @@
-const https = require('https')
+import https from 'https'
 
-module.exports = function handler(req, res) {
+export default function handler(req, res) {
   const target = req.query.target
   if (!target) { res.status(400).json({ error: 'missing target' }); return }
 
@@ -30,6 +30,6 @@ module.exports = function handler(req, res) {
   req.pipe(proxy)
 }
 
-module.exports.config = {
+export const config = {
   api: { bodyParser: false }
 }
