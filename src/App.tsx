@@ -17,6 +17,7 @@ export default function App() {
   const [recognizing, setRecognizing] = useState(false)
   const [prompt, setPrompt] = useState('')
   const [resultUrl, setResultUrl] = useState('')
+  const [resultBase64, setResultBase64] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
@@ -32,6 +33,11 @@ export default function App() {
       const canvas = canvasRef.current!
       canvas.width = img.naturalWidth
       canvas.height = img.naturalHeight
+      const maxW = canvas.parentElement!.clientWidth
+      const maxH = window.innerHeight * 0.55
+      const scale = Math.min(maxW / img.naturalWidth, maxH / img.naturalHeight, 1)
+      canvas.style.width = img.naturalWidth * scale + 'px'
+      canvas.style.height = img.naturalHeight * scale + 'px'
       redraw(null)
     }
     img.src = originalImage
@@ -148,17 +154,37 @@ export default function App() {
       mCtx.fillRect(0, 0, maskCanvas.width, maskCanvas.height)
       mCtx.fillStyle = 'white'
       mCtx.fillRect(selRect.x, selRect.y, selRect.w, selRect.h)
-
-      const imageBase64 = originalImage.split(',')[1]
+      const imageBase64 = originalImage.startsWith('data:')
+        ? originalImage.split(',')[1]
+        : undefined
+      const imageUrl = originalImage.startsWith('data:') ? undefined : originalImage
       const maskBase64 = maskCanvas.toDataURL('image/png').split(',')[1]
-      const url = await editImage(imageBase64, maskBase64, prompt)
+      const url = await editImage(imageBase64, imageUrl, maskBase64, prompt)
       setResultUrl(url)
+      loadImageAsBase64(url).then(setResultBase64).catch(() => {})
       setStage('result')
     } catch (e: any) {
       setError(e.message)
     } finally {
       setLoading(false)
     }
+  }
+
+  function loadImageAsBase64(url: string): Promise<string> {
+    const proxyUrl = `/img-proxy?url=${encodeURIComponent(url)}`
+    return new Promise((resolve, reject) => {
+      const img = new Image()
+      img.crossOrigin = 'anonymous'
+      img.onload = () => {
+        const c = document.createElement('canvas')
+        c.width = img.naturalWidth
+        c.height = img.naturalHeight
+        c.getContext('2d')!.drawImage(img, 0, 0)
+        resolve(c.toDataURL('image/png'))
+      }
+      img.onerror = () => reject(new Error('图片加载失败'))
+      img.src = proxyUrl
+    })
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
@@ -235,16 +261,21 @@ export default function App() {
             <div><p>编辑结果</p><img src={resultUrl} alt="结果" className="result-img" /></div>
           </div>
           <div className="actions">
-            <button onClick={() => { setStage('upload'); setResultUrl(''); setPrompt(''); setOriginalImage('') }} className="btn-secondary">
+            <button onClick={() => {
+              setOriginalImage(resultBase64 || resultUrl)
+              setResultUrl(''); setResultBase64(''); setPrompt('')
+              setSelCrop(''); setSelRect(null); setRegionDesc('')
+              setStage('select')
+            }} className="btn-primary">继续编辑结果</button>
+            <button onClick={() => { setStage('select'); setResultUrl(''); setResultBase64(''); setPrompt('') }} className="btn-secondary">
+              编辑原图
+            </button>
+            <button onClick={() => { setStage('upload'); setResultUrl(''); setResultBase64(''); setPrompt(''); setOriginalImage('') }} className="btn-secondary">
               换张图
             </button>
-            <button onClick={() => { setStage('select'); setResultUrl(''); setPrompt('') }} className="btn-secondary">
-              再次编辑
-            </button>
-            <button className="btn-primary" onClick={async () => {
-              const blob = await fetch(resultUrl).then(r => r.blob())
+            <button className="btn-secondary" onClick={() => {
               const a = document.createElement('a')
-              a.href = URL.createObjectURL(blob)
+              a.href = resultBase64 || resultUrl
               a.download = 'result.png'
               a.click()
             }}>下载结果</button>

@@ -41,7 +41,7 @@ h1 {
 .hint { font-size: 14px; color: #888; }
 
 .canvas-wrap { width: 100%; max-width: 760px; }
-.canvas-wrap canvas { width: 100%; height: auto; max-height: 55vh; object-fit: contain; border-radius: 12px; border: 1px solid #333; cursor: crosshair; display: block; }
+.canvas-wrap canvas { border-radius: 12px; border: 1px solid #333; cursor: crosshair; display: block; }
 
 .actions { display: flex; gap: 12px; }
 

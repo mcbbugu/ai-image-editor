@@ -24,7 +24,14 @@ export async function recognizeRegion(croppedBase64: string): Promise<string> {
   return data.choices?.[0]?.message?.content ?? '未识别'
 }
 
-async function submitEditTask(imageBase64: string, maskBase64: string, prompt: string): Promise<string> {
+async function submitEditTask(imageBase64: string | undefined, imageUrl: string | undefined, maskBase64: string, prompt: string): Promise<string> {
+  const input = {
+    function: 'description_edit_with_mask',
+    prompt,
+    base_image_url: imageUrl ?? `data:image/png;base64,${imageBase64}`,
+    mask_image_url: `data:image/png;base64,${maskBase64}`,
+  }
+
   const res = await fetch(
     '/dashscope/api/v1/services/aigc/image2image/image-synthesis',
     {
@@ -36,12 +43,7 @@ async function submitEditTask(imageBase64: string, maskBase64: string, prompt: s
       },
       body: JSON.stringify({
         model: 'wanx2.1-imageedit',
-        input: {
-          function: 'description_edit_with_mask',
-          prompt,
-          base_image_url: `data:image/png;base64,${imageBase64}`,
-          mask_image_url: `data:image/png;base64,${maskBase64}`,
-        },
+        input,
         parameters: { n: 1 },
       }),
     }
@@ -66,7 +68,7 @@ async function pollTask(taskId: string): Promise<string> {
   throw new Error('超时，请重试')
 }
 
-export async function editImage(imageBase64: string, maskBase64: string, prompt: string): Promise<string> {
-  const taskId = await submitEditTask(imageBase64, maskBase64, prompt)
+export async function editImage(imageBase64: string | undefined, imageUrl: string | undefined, maskBase64: string, prompt: string): Promise<string> {
+  const taskId = await submitEditTask(imageBase64, imageUrl, maskBase64, prompt)
   return pollTask(taskId)
 }
