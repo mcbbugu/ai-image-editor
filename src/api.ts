@@ -1,7 +1,7 @@
 const API_KEY = import.meta.env.VITE_DASHSCOPE_API_KEY
 
 export async function recognizeRegion(croppedBase64: string): Promise<string> {
-  const res = await fetch('/dashscope/compatible-mode/v1/chat/completions', {
+  const res = await fetch('/api/dashscope/compatible-mode/v1/chat/completions', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -33,7 +33,7 @@ async function submitEditTask(imageBase64: string | undefined, imageUrl: string 
   }
 
   const res = await fetch(
-    '/dashscope/api/v1/services/aigc/image2image/image-synthesis',
+    '/api/dashscope/api/v1/services/aigc/image2image/image-synthesis',
     {
       method: 'POST',
       headers: {
@@ -57,7 +57,7 @@ async function pollTask(taskId: string): Promise<string> {
   for (let i = 0; i < 30; i++) {
     await new Promise(r => setTimeout(r, 3000))
     const res = await fetch(
-      `/dashscope/api/v1/tasks/${taskId}`,
+      `/api/dashscope/api/v1/tasks/${taskId}`,
       { headers: { Authorization: `Bearer ${API_KEY}` } }
     )
     const data = await res.json()

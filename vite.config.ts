@@ -7,7 +7,7 @@ export default defineConfig({
     {
       name: 'img-proxy',
       configureServer(server) {
-        server.middlewares.use('/img-proxy', async (req, res) => {
+        server.middlewares.use('/api/img-proxy', async (req, res) => {
           const target = new URL(req.url!, 'http://localhost').searchParams.get('url')
           if (!target) { res.statusCode = 400; res.end(); return }
           try {
@@ -25,10 +25,10 @@ export default defineConfig({
   ],
   server: {
     proxy: {
-      '/dashscope': {
+      '/api/dashscope': {
         target: 'https://dashscope.aliyuncs.com',
         changeOrigin: true,
-        rewrite: path => path.replace(/^\/dashscope/, ''),
+        rewrite: path => path.replace(/^\/api\/dashscope/, ''),
       },
     },
   },

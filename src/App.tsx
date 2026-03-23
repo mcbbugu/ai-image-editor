@@ -171,7 +171,7 @@ export default function App() {
   }
 
   function loadImageAsBase64(url: string): Promise<string> {
-    const proxyUrl = `/img-proxy?url=${encodeURIComponent(url)}`
+    const proxyUrl = `/api/img-proxy?url=${encodeURIComponent(url)}`
     return new Promise((resolve, reject) => {
       const img = new Image()
       img.crossOrigin = 'anonymous'
