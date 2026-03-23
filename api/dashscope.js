@@ -3,10 +3,6 @@ import https from 'https'
 export default function handler(req, res) {
   const url = new URL(req.url || '/', 'http://localhost')
   const prefix = '/api/dashscope'
-  if (!url.pathname.startsWith(prefix)) {
-    res.status(404).json({ error: 'not found' })
-    return
-  }
   let pathAfter = url.pathname.slice(prefix.length)
   if (!pathAfter || pathAfter === '') pathAfter = '/'
   else if (!pathAfter.startsWith('/')) pathAfter = '/' + pathAfter
