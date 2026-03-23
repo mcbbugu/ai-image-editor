@@ -2,7 +2,6 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "rewrites": [
-    { "source": "/api/dashscope/:path*", "destination": "/api/dashscope/catchall?path=:path*" },
     { "source": "/((?!api/).*)", "destination": "/index.html" }
   ]
 }
