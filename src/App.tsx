@@ -199,7 +199,7 @@ export default function App() {
           <p>AI 处理中，请稍候...</p>
         </div>
       )}
-      <h1>AI 图像编辑</h1>
+      <h1>AI 图像编辑222</h1>
 
       {stage === 'upload' && (
         <label className="upload-label">
