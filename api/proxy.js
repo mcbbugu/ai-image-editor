@@ -1,14 +1,8 @@
 const https = require('https')
 
 module.exports = function handler(req, res) {
-  const segments = req.query.path
-  const path = Array.isArray(segments) ? segments.join('/') : (segments || '')
-
-  const searchParams = new URLSearchParams()
-  for (const [key, value] of Object.entries(req.query)) {
-    if (key !== 'path') searchParams.set(key, String(value))
-  }
-  const qs = searchParams.toString() ? `?${searchParams.toString()}` : ''
+  const target = req.query.target
+  if (!target) { res.status(400).json({ error: 'missing target' }); return }
 
   const headers = {}
   for (const [key, value] of Object.entries(req.headers)) {
@@ -19,7 +13,7 @@ module.exports = function handler(req, res) {
 
   const options = {
     hostname: 'dashscope.aliyuncs.com',
-    path: `/${path}${qs}`,
+    path: '/' + target,
     method: req.method,
     headers,
   }
