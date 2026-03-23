@@ -1,6 +1,7 @@
 {
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
+  "regions": ["hkg1"],
   "rewrites": [
     { "source": "/api/dashscope/:path*", "destination": "/api/dashscope" },
     { "source": "/((?!api/).*)", "destination": "/index.html" }
