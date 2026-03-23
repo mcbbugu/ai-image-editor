@@ -1,27 +1,33 @@
-export const config = { runtime: 'edge' }
+export default async function handler(req: any, res: any) {
+  const segments = req.query.path
+  const path = Array.isArray(segments) ? segments.join('/') : (segments || '')
 
-export default async function handler(req: Request) {
-  const url = new URL(req.url)
-  const path = url.pathname.replace(/^\/api\/dashscope/, '')
-  const target = `https://dashscope.aliyuncs.com${path}${url.search}`
-
-  const headers = new Headers()
-  for (const [key, value] of req.headers.entries()) {
-    if (key.toLowerCase() !== 'host') headers.set(key, value)
+  const searchParams = new URLSearchParams()
+  for (const [key, value] of Object.entries(req.query as Record<string, string>)) {
+    if (key !== 'path') searchParams.set(key, value)
   }
-  headers.set('host', 'dashscope.aliyuncs.com')
+  const qs = searchParams.toString() ? `?${searchParams.toString()}` : ''
+  const target = `https://dashscope.aliyuncs.com/${path}${qs}`
 
-  const response = await fetch(target, {
-    method: req.method,
-    headers,
-    body: req.method !== 'GET' && req.method !== 'HEAD' ? req.body : undefined,
-  })
-
-  const resHeaders = new Headers()
-  for (const [key, value] of response.headers.entries()) {
-    if (key.toLowerCase() !== 'transfer-encoding') resHeaders.set(key, value)
+  const headers: Record<string, string> = {}
+  for (const [key, value] of Object.entries(req.headers as Record<string, string>)) {
+    if (!['host', 'connection', 'transfer-encoding'].includes(key.toLowerCase())) {
+      headers[key] = value
+    }
   }
-  resHeaders.set('access-control-allow-origin', '*')
 
-  return new Response(response.body, { status: response.status, headers: resHeaders })
+  const body = req.method !== 'GET' && req.method !== 'HEAD'
+    ? JSON.stringify(req.body)
+    : undefined
+
+  const response = await fetch(target, { method: req.method, headers, body })
+  const data = await response.text()
+
+  res.status(response.status)
+  res.setHeader('content-type', response.headers.get('content-type') || 'application/json')
+  res.send(data)
+}
+
+export const config = {
+  api: { bodyParser: { sizeLimit: '10mb' } }
 }

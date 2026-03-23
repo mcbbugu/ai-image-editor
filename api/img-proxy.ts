@@ -1,14 +1,11 @@
-export const config = { runtime: 'edge' }
-
-export default async function handler(req: Request) {
-  const url = new URL(req.url)
-  const target = url.searchParams.get('url')
-  if (!target) return new Response('missing url', { status: 400 })
+export default async function handler(req: any, res: any) {
+  const target = req.query.url
+  if (!target) { res.status(400).send('missing url'); return }
 
   const response = await fetch(target)
-  const headers = new Headers()
-  headers.set('content-type', response.headers.get('content-type') || 'image/png')
-  headers.set('access-control-allow-origin', '*')
+  const buffer = await response.arrayBuffer()
 
-  return new Response(response.body, { status: response.status, headers })
+  res.setHeader('content-type', response.headers.get('content-type') || 'image/png')
+  res.setHeader('access-control-allow-origin', '*')
+  res.status(response.status).send(Buffer.from(buffer))
 }
