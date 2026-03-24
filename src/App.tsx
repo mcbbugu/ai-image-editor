@@ -4,6 +4,26 @@ import './App.css'
 
 interface Rect { x: number; y: number; w: number; h: number }
 
+function downscaleDataUrl(dataUrl: string, maxDim: number): Promise<{ dataUrl: string; w: number; h: number; s: number }> {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    img.onload = () => {
+      const nw = img.naturalWidth
+      const nh = img.naturalHeight
+      const s = Math.min(1, maxDim / Math.max(nw, nh))
+      const w = Math.round(nw * s)
+      const h = Math.round(nh * s)
+      const c = document.createElement('canvas')
+      c.width = w
+      c.height = h
+      c.getContext('2d')!.drawImage(img, 0, 0, w, h)
+      resolve({ dataUrl: c.toDataURL('image/jpeg', 0.88), w, h, s })
+    }
+    img.onerror = () => reject(new Error('图片加载失败'))
+    img.src = dataUrl
+  })
+}
+
 export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const imgRef = useRef<HTMLImageElement | null>(null)
@@ -103,14 +123,14 @@ export default function App() {
     cropCanvas.height = r.h
     cropCanvas.getContext('2d')!.drawImage(img, r.x, r.y, r.w, r.h, 0, 0, r.w, r.h)
     const cropDataUrl = cropCanvas.toDataURL('image/png')
-    const cropBase64 = cropDataUrl.split(',')[1]
 
     setSelRect(r)
     setSelCrop(cropDataUrl)
     setTimeout(() => inputRef.current?.focus(), 50)
 
     setRecognizing(true)
-    recognizeRegion(cropBase64)
+    downscaleDataUrl(cropDataUrl, 1024)
+      .then(({ dataUrl }) => recognizeRegion(dataUrl))
       .then(desc => setRegionDesc(desc))
       .catch(() => {})
       .finally(() => setRecognizing(false))
@@ -146,20 +166,42 @@ export default function App() {
     setLoading(true)
     try {
       const img = imgRef.current!
-      const maskCanvas = document.createElement('canvas')
-      maskCanvas.width = img.naturalWidth
-      maskCanvas.height = img.naturalHeight
-      const mCtx = maskCanvas.getContext('2d')!
-      mCtx.fillStyle = 'black'
-      mCtx.fillRect(0, 0, maskCanvas.width, maskCanvas.height)
-      mCtx.fillStyle = 'white'
-      mCtx.fillRect(selRect.x, selRect.y, selRect.w, selRect.h)
-      const imageBase64 = originalImage.startsWith('data:')
-        ? originalImage.split(',')[1]
-        : undefined
-      const imageUrl = originalImage.startsWith('data:') ? undefined : originalImage
-      const maskBase64 = maskCanvas.toDataURL('image/png').split(',')[1]
-      const url = await editImage(imageBase64, imageUrl, maskBase64, prompt)
+      const nw = img.naturalWidth
+      const nh = img.naturalHeight
+      let imageBase64: string | undefined
+      let imageUrl: string | undefined
+      let maskBase64: string
+      let baseMime = 'image/png'
+
+      if (originalImage.startsWith('data:')) {
+        const { dataUrl, w, h, s } = await downscaleDataUrl(originalImage, 2048)
+        imageBase64 = dataUrl.split(',')[1]
+        baseMime = 'image/jpeg'
+        imageUrl = undefined
+        const maskCanvas = document.createElement('canvas')
+        maskCanvas.width = w
+        maskCanvas.height = h
+        const mCtx = maskCanvas.getContext('2d')!
+        mCtx.fillStyle = 'black'
+        mCtx.fillRect(0, 0, w, h)
+        mCtx.fillStyle = 'white'
+        mCtx.fillRect(selRect.x * s, selRect.y * s, selRect.w * s, selRect.h * s)
+        maskBase64 = maskCanvas.toDataURL('image/png').split(',')[1]
+      } else {
+        imageUrl = originalImage
+        imageBase64 = undefined
+        const maskCanvas = document.createElement('canvas')
+        maskCanvas.width = nw
+        maskCanvas.height = nh
+        const mCtx = maskCanvas.getContext('2d')!
+        mCtx.fillStyle = 'black'
+        mCtx.fillRect(0, 0, nw, nh)
+        mCtx.fillStyle = 'white'
+        mCtx.fillRect(selRect.x, selRect.y, selRect.w, selRect.h)
+        maskBase64 = maskCanvas.toDataURL('image/png').split(',')[1]
+      }
+
+      const url = await editImage(imageBase64, imageUrl, maskBase64, prompt, baseMime)
       setResultUrl(url)
       loadImageAsBase64(url).then(setResultBase64).catch(() => {})
       setStage('result')
