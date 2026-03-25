@@ -4,6 +4,15 @@ import './App.css'
 
 interface Rect { x: number; y: number; w: number; h: number }
 
+interface ChatMsg {
+  id: string
+  role: 'user' | 'assistant'
+  text?: string
+  imageUrl?: string
+  base64?: string
+  status?: 'pending' | 'ok' | 'error'
+}
+
 function downscaleDataUrl(dataUrl: string, maxDim: number): Promise<{ dataUrl: string; w: number; h: number; s: number }> {
   return new Promise((resolve, reject) => {
     const img = new Image()
@@ -28,17 +37,15 @@ export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const imgRef = useRef<HTMLImageElement | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const chatScrollRef = useRef<HTMLDivElement>(null)
 
-  const [stage, setStage] = useState<'upload' | 'select' | 'result'>('upload')
   const [originalImage, setOriginalImage] = useState('')
+  const [messages, setMessages] = useState<ChatMsg[]>([])
   const [selCrop, setSelCrop] = useState('')
   const [selRect, setSelRect] = useState<Rect | null>(null)
   const [regionDesc, setRegionDesc] = useState('')
   const [recognizing, setRecognizing] = useState(false)
   const [prompt, setPrompt] = useState('')
-  const [resultUrl, setResultUrl] = useState('')
-  const [resultBase64, setResultBase64] = useState('')
-  const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
   const isDrawing = useRef(false)
@@ -46,25 +53,51 @@ export default function App() {
   const startPt = useRef({ x: 0, y: 0 })
 
   useEffect(() => {
-    if (stage !== 'select' || !originalImage) return
+    if (!originalImage) return
     const img = new Image()
     img.onload = () => {
       imgRef.current = img
       const canvas = canvasRef.current!
       canvas.width = img.naturalWidth
       canvas.height = img.naturalHeight
-      const maxW = canvas.parentElement!.clientWidth
-      const maxH = window.innerHeight * 0.55
+      const wrap = canvas.parentElement!
+      const maxW = wrap.clientWidth
+      const maxH = window.innerHeight * 0.62
       const scale = Math.min(maxW / img.naturalWidth, maxH / img.naturalHeight, 1)
       canvas.style.width = img.naturalWidth * scale + 'px'
       canvas.style.height = img.naturalHeight * scale + 'px'
       redraw(null)
     }
     img.src = originalImage
-  }, [stage, originalImage])
+  }, [originalImage])
+
+  useEffect(() => {
+    chatScrollRef.current?.scrollTo({ top: chatScrollRef.current.scrollHeight, behavior: 'smooth' })
+  }, [messages])
+
+  const [previewSrc, setPreviewSrc] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!previewSrc) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setPreviewSrc(null)
+    }
+    window.addEventListener('keydown', onKey)
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      document.body.style.overflow = prev
+    }
+  }, [previewSrc])
+
+  const pending = messages.some(m => m.role === 'assistant' && m.status === 'pending')
+  const hasImage = !!originalImage
+  const canSend = hasImage && !!selCrop && !pending
 
   function redraw(r: Rect | null) {
-    const canvas = canvasRef.current!
+    const canvas = canvasRef.current
+    if (!canvas || !imgRef.current) return
     const ctx = canvas.getContext('2d')!
     ctx.clearRect(0, 0, canvas.width, canvas.height)
     ctx.drawImage(imgRef.current!, 0, 0)
@@ -154,16 +187,53 @@ export default function App() {
       setSelRect(null)
       setRegionDesc('')
       setPrompt('')
-      setStage('select')
+      setMessages([])
+      drawingRect.current = null
     }
     reader.readAsDataURL(file)
   }
 
+  function resetWorkbench() {
+    setOriginalImage('')
+    setMessages([])
+    setPrompt('')
+    setSelCrop('')
+    setSelRect(null)
+    setRegionDesc('')
+    setError('')
+    drawingRect.current = null
+    imgRef.current = null
+  }
+
+  function loadImageAsBase64(url: string): Promise<string> {
+    const proxyUrl = `/api/img-proxy?url=${encodeURIComponent(url)}`
+    return new Promise((resolve, reject) => {
+      const img = new Image()
+      img.crossOrigin = 'anonymous'
+      img.onload = () => {
+        const c = document.createElement('canvas')
+        c.width = img.naturalWidth
+        c.height = img.naturalHeight
+        c.getContext('2d')!.drawImage(img, 0, 0)
+        resolve(c.toDataURL('image/png'))
+      }
+      img.onerror = () => reject(new Error('图片加载失败'))
+      img.src = proxyUrl
+    })
+  }
+
   async function handleEdit() {
+    if (!originalImage) { setError('请先上传图片'); return }
     if (!selRect) { setError('请先框选一个区域'); return }
     if (!prompt.trim()) { setError('请输入编辑指令'); return }
     setError('')
-    setLoading(true)
+    const userText = prompt.trim()
+    const assistantId = crypto.randomUUID()
+    setPrompt('')
+    setMessages(m => [...m,
+      { id: crypto.randomUUID(), role: 'user', text: userText },
+      { id: assistantId, role: 'assistant', status: 'pending' },
+    ])
     try {
       const img = imgRef.current!
       const nw = img.naturalWidth
@@ -201,127 +271,172 @@ export default function App() {
         maskBase64 = maskCanvas.toDataURL('image/png').split(',')[1]
       }
 
-      const url = await editImage(imageBase64, imageUrl, maskBase64, prompt, baseMime)
-      setResultUrl(url)
-      loadImageAsBase64(url).then(setResultBase64).catch(() => {})
-      setStage('result')
-    } catch (e: any) {
-      setError(e.message)
-    } finally {
-      setLoading(false)
+      const url = await editImage(imageBase64, imageUrl, maskBase64, userText, baseMime)
+      let base64: string | undefined
+      try { base64 = await loadImageAsBase64(url) } catch { /* ok */ }
+      setMessages(m => m.map(msg =>
+        msg.id === assistantId
+          ? { ...msg, status: 'ok' as const, imageUrl: url, base64 }
+          : msg
+      ))
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e)
+      setMessages(m => m.map(x =>
+        x.id === assistantId ? { ...x, status: 'error' as const, text: msg } : x
+      ))
     }
   }
 
-  function loadImageAsBase64(url: string): Promise<string> {
-    const proxyUrl = `/api/img-proxy?url=${encodeURIComponent(url)}`
-    return new Promise((resolve, reject) => {
-      const img = new Image()
-      img.crossOrigin = 'anonymous'
-      img.onload = () => {
-        const c = document.createElement('canvas')
-        c.width = img.naturalWidth
-        c.height = img.naturalHeight
-        c.getContext('2d')!.drawImage(img, 0, 0)
-        resolve(c.toDataURL('image/png'))
-      }
-      img.onerror = () => reject(new Error('图片加载失败'))
-      img.src = proxyUrl
-    })
+  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      if (!canSend) return
+      handleEdit()
+    }
   }
 
-  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleEdit() }
+  function downloadMsg(m: ChatMsg, index: number) {
+    const href = m.base64 || m.imageUrl
+    if (!href) return
+    const a = document.createElement('a')
+    a.href = href
+    a.download = `edit-${index + 1}.png`
+    a.click()
+  }
+
+  function applyResultAsCanvas(m: ChatMsg) {
+    const href = m.base64 || m.imageUrl
+    if (!href) return
+    setOriginalImage(href)
+    clearSelection()
   }
 
   return (
     <div className="app">
-      {loading && (
-        <div className="loading-overlay">
-          <div className="loading-spinner" />
-          <p>AI 处理中，请稍候...</p>
-        </div>
-      )}
-      <h1>AI 图像编辑222</h1>
-
-      {stage === 'upload' && (
-        <label className="upload-label">
-          <span>点击上传图片</span>
-          <input type="file" accept="image/*" onChange={handleFileChange} />
-        </label>
-      )}
-
-      {stage === 'select' && (
-        <div className="select-zone">
-          <p className="hint">拖拽鼠标框选要编辑的区域</p>
+      <h1>AI 图像编辑</h1>
+      <br />
+      <br />
+      <div className="workspace">
+        <div className="left-panel">
+          <p className="hint">
+            {hasImage ? '在图上拖拽框选要编辑的区域' : '先上传图片，再框选区域、在右侧输入指令'}
+          </p>
           <div className="canvas-wrap">
-            <canvas
-              ref={canvasRef}
-              onMouseDown={onMouseDown}
-              onMouseMove={onMouseMove}
-              onMouseUp={onMouseUp}
-            />
-          </div>
-
-          <div className="input-bar">
-            {selCrop && (
-              <div className="chip">
-                <img src={selCrop} alt="选区" className="chip-img" />
-                {recognizing
-                  ? <span className="chip-label">识别中...</span>
-                  : regionDesc && <span className="chip-label">{regionDesc}</span>
-                }
-                <button className="chip-close" onClick={clearSelection}>✕</button>
-              </div>
+            {hasImage ? (
+              <canvas
+                ref={canvasRef}
+                onMouseDown={onMouseDown}
+                onMouseMove={onMouseMove}
+                onMouseUp={onMouseUp}
+              />
+            ) : (
+              <label className="upload-placeholder">
+                <span className="upload-placeholder-title">上传图片</span>
+                <span className="upload-placeholder-sub">点击选择文件，开始编辑</span>
+                <input type="file" accept="image/*" onChange={handleFileChange} />
+              </label>
             )}
-            <input
-              ref={inputRef}
-              className="prompt-input"
-              value={prompt}
-              onChange={e => setPrompt(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder={selCrop ? '描述修改后的样子，如"一个红色的苹果"，按 Enter 提交' : '先框选一个区域'}
-              disabled={!selCrop || loading}
-            />
-            <button
-              className="btn-primary"
-              onClick={handleEdit}
-              disabled={!selCrop || loading}
-            >
-              {loading ? '处理中...' : '提交'}
-            </button>
           </div>
-
-          <button onClick={() => setStage('upload')} className="btn-secondary">重新上传</button>
-          {error && <p className="error">{error}</p>}
-        </div>
-      )}
-
-      {stage === 'result' && (
-        <div className="result-zone">
-          <div className="compare-row">
-            <div><p>原图</p><img src={originalImage} alt="原图" className="result-img" /></div>
-            <div><p>编辑结果</p><img src={resultUrl} alt="结果" className="result-img" /></div>
-          </div>
-          <div className="actions">
-            <button onClick={() => {
-              setOriginalImage(resultBase64 || resultUrl)
-              setResultUrl(''); setResultBase64(''); setPrompt('')
-              setSelCrop(''); setSelRect(null); setRegionDesc('')
-              setStage('select')
-            }} className="btn-primary">继续编辑结果</button>
-            <button onClick={() => { setStage('select'); setResultUrl(''); setResultBase64(''); setPrompt('') }} className="btn-secondary">
-              编辑原图
-            </button>
-            <button onClick={() => { setStage('upload'); setResultUrl(''); setResultBase64(''); setPrompt(''); setOriginalImage('') }} className="btn-secondary">
+          {hasImage && (
+            <button type="button" onClick={resetWorkbench} className="btn-secondary">
               换张图
             </button>
-            <button className="btn-secondary" onClick={() => {
-              const a = document.createElement('a')
-              a.href = resultBase64 || resultUrl
-              a.download = 'result.png'
-              a.click()
-            }}>下载结果</button>
+          )}
+        </div>
+
+        <div className="right-panel">
+            <div className="chat-header">对话与结果</div>
+            <div className="chat-messages" ref={chatScrollRef}>
+              {messages.length === 0 && (
+                <p className="chat-empty">
+                  {hasImage
+                    ? '在左侧框选区域后，在这里输入指令并发送；结果可点图放大、下载。'
+                    : '左右布局已就绪。请先上传左侧图片；上传并在图上框选区域后，下方输入框才能用。'}
+                </p>
+              )}
+              {messages.map((m, i) => (
+                <div key={m.id} className={`chat-bubble ${m.role}`}>
+                  {m.role === 'user' && <p className="bubble-text">{m.text}</p>}
+                  {m.role === 'assistant' && m.status === 'pending' && (
+                    <div className="bubble-loading"><span className="mini-spin" /> 生成中…</div>
+                  )}
+                  {m.role === 'assistant' && m.status === 'error' && (
+                    <p className="bubble-error">{m.text}</p>
+                  )}
+                  {m.role === 'assistant' && m.status === 'ok' && m.imageUrl && (
+                    <>
+                      <button
+                        type="button"
+                        className="bubble-img-btn"
+                        onClick={() => setPreviewSrc(m.base64 || m.imageUrl!)}
+                        title="点击放大"
+                      >
+                        <img src={m.imageUrl} alt="结果" className="bubble-img" />
+                      </button>
+                      <div className="bubble-actions">
+                        <button type="button" className="btn-tiny" onClick={() => downloadMsg(m, i)}>下载</button>
+                        <button type="button" className="btn-tiny primary" onClick={() => applyResultAsCanvas(m)}>用此图继续编辑</button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              ))}
+            </div>
+            <div className="chat-input-area">
+              <div className="input-bar">
+                {selCrop && (
+                  <div className="chip">
+                    <img src={selCrop} alt="选区" className="chip-img" />
+                    {recognizing
+                      ? <span className="chip-label">识别中...</span>
+                      : regionDesc && <span className="chip-label">{regionDesc}</span>}
+                    <button type="button" className="chip-close" onClick={clearSelection}>✕</button>
+                  </div>
+                )}
+                <input
+                  ref={inputRef}
+                  className="prompt-input"
+                  value={prompt}
+                  onChange={e => setPrompt(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder={
+                    !hasImage
+                      ? '请先上传图片'
+                      : !selCrop
+                        ? '请在左侧框选区域'
+                        : '输入编辑指令，Enter 发送'
+                  }
+                  disabled={!canSend}
+                />
+                <button
+                  type="button"
+                  className="btn-primary"
+                  onClick={handleEdit}
+                  disabled={!canSend}
+                >
+                  发送
+                </button>
+              </div>
+              {error && <p className="error-inline">{error}</p>}
+            </div>
           </div>
+      </div>
+
+      {previewSrc && (
+        <div
+          className="img-lightbox"
+          role="presentation"
+          onClick={() => setPreviewSrc(null)}
+        >
+          <button type="button" className="lightbox-close" onClick={() => setPreviewSrc(null)} aria-label="关闭">
+            ✕
+          </button>
+          <img
+            src={previewSrc}
+            alt="预览"
+            className="lightbox-img"
+            onClick={e => e.stopPropagation()}
+          />
         </div>
       )}
     </div>

@@ -63,7 +63,7 @@ async function submitEditTask(
       body: JSON.stringify({
         model: 'wanx2.1-imageedit',
         input,
-        parameters: { n: 1 },
+        parameters: { n: 1, prompt_extend: true },
       }),
     }
   )
