@@ -93,7 +93,7 @@ export default function App() {
 
   const pending = messages.some(m => m.role === 'assistant' && m.status === 'pending')
   const hasImage = !!originalImage
-  const canSend = hasImage && !!selCrop && !pending
+  const canSend = hasImage && !pending
 
   function redraw(r: Rect | null) {
     const canvas = canvasRef.current
@@ -224,7 +224,6 @@ export default function App() {
 
   async function handleEdit() {
     if (!originalImage) { setError('请先上传图片'); return }
-    if (!selRect) { setError('请先框选一个区域'); return }
     if (!prompt.trim()) { setError('请输入编辑指令'); return }
     setError('')
     const userText = prompt.trim()
@@ -252,10 +251,15 @@ export default function App() {
         maskCanvas.width = w
         maskCanvas.height = h
         const mCtx = maskCanvas.getContext('2d')!
-        mCtx.fillStyle = 'black'
-        mCtx.fillRect(0, 0, w, h)
-        mCtx.fillStyle = 'white'
-        mCtx.fillRect(selRect.x * s, selRect.y * s, selRect.w * s, selRect.h * s)
+        if (selRect) {
+          mCtx.fillStyle = 'black'
+          mCtx.fillRect(0, 0, w, h)
+          mCtx.fillStyle = 'white'
+          mCtx.fillRect(selRect.x * s, selRect.y * s, selRect.w * s, selRect.h * s)
+        } else {
+          mCtx.fillStyle = 'white'
+          mCtx.fillRect(0, 0, w, h)
+        }
         maskBase64 = maskCanvas.toDataURL('image/png').split(',')[1]
       } else {
         imageUrl = originalImage
@@ -264,10 +268,15 @@ export default function App() {
         maskCanvas.width = nw
         maskCanvas.height = nh
         const mCtx = maskCanvas.getContext('2d')!
-        mCtx.fillStyle = 'black'
-        mCtx.fillRect(0, 0, nw, nh)
-        mCtx.fillStyle = 'white'
-        mCtx.fillRect(selRect.x, selRect.y, selRect.w, selRect.h)
+        if (selRect) {
+          mCtx.fillStyle = 'black'
+          mCtx.fillRect(0, 0, nw, nh)
+          mCtx.fillStyle = 'white'
+          mCtx.fillRect(selRect.x, selRect.y, selRect.w, selRect.h)
+        } else {
+          mCtx.fillStyle = 'white'
+          mCtx.fillRect(0, 0, nw, nh)
+        }
         maskBase64 = maskCanvas.toDataURL('image/png').split(',')[1]
       }
 
@@ -314,12 +323,12 @@ export default function App() {
   return (
     <div className="app">
       <h1>AI 图像编辑</h1>
-      <br />
-      <br />
       <div className="workspace">
         <div className="left-panel">
           <p className="hint">
-            {hasImage ? '在图上拖拽框选要编辑的区域' : '先上传图片，再框选区域、在右侧输入指令'}
+            {hasImage
+              ? '可不框选：无选区 = 整图编辑。也可拖拽框选，只改局部。'
+              : '先上传图片；右侧可直接打字（整图），或框选后改局部。'}
           </p>
           <div className="canvas-wrap">
             {hasImage ? (
@@ -350,8 +359,8 @@ export default function App() {
               {messages.length === 0 && (
                 <p className="chat-empty">
                   {hasImage
-                    ? '在左侧框选区域后，在这里输入指令并发送；结果可点图放大、下载。'
-                    : '左右布局已就绪。请先上传左侧图片；上传并在图上框选区域后，下方输入框才能用。'}
+                    ? '直接输入指令 = 按整图理解；框选后发送 = 只改选中区域。结果可点图放大、下载。'
+                    : '请先上传左侧图片，上传后即可在下方输入（整图编辑）。可选：框选后改为局部编辑。'}
                 </p>
               )}
               {messages.map((m, i) => (
@@ -402,9 +411,9 @@ export default function App() {
                   placeholder={
                     !hasImage
                       ? '请先上传图片'
-                      : !selCrop
-                        ? '请在左侧框选区域'
-                        : '输入编辑指令，Enter 发送'
+                      : selCrop
+                        ? '局部编辑：输入指令，Enter 发送'
+                        : '整图编辑：输入指令，Enter 发送（可选左侧框选改局部）'
                   }
                   disabled={!canSend}
                 />
